@@ -9,6 +9,7 @@ from typing import Any
 LOG_DIR = Path(__file__).resolve().parents[1] / "agentops_logs"
 TRACE_PATH = LOG_DIR / "traces.jsonl"
 EVAL_PATH = LOG_DIR / "eval_results.json"
+EVAL_CASES_PATH = Path(__file__).resolve().parents[1] / "evals" / "eval_cases.jsonl"
 
 MODEL_PRICING_PER_1K = {
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
@@ -79,5 +80,17 @@ def save_eval_results(results: dict[str, Any]) -> None:
 
 def load_eval_results() -> dict[str, Any]:
     if not EVAL_PATH.exists():
-        return {"runs": [], "summary": {"cases": 0, "pass_rate": 0}}
+        cases = 0
+        if EVAL_CASES_PATH.exists():
+            cases = sum(1 for line in EVAL_CASES_PATH.read_text(encoding="utf-8").splitlines() if line.strip())
+        return {
+            "runs": [],
+            "summary": {
+                "status": "not_run",
+                "cases": cases,
+                "pass_rate": 0,
+                "tool_accuracy": 0,
+                "avg_groundedness": 0,
+            },
+        }
     return json.loads(EVAL_PATH.read_text(encoding="utf-8"))

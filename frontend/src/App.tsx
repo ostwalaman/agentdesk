@@ -40,6 +40,7 @@ type AgentOpsMetrics = {
 
 type EvalResults = {
   summary?: {
+    status?: string;
     cases: number;
     pass_rate: number;
     tool_accuracy?: number;
@@ -429,6 +430,9 @@ export default function App() {
           </div>
           <div className="space-y-2 text-xs text-slate-300">
             <p>Cases: {evalResults?.summary?.cases ?? 0}</p>
+            {evalResults?.summary?.status === "not_run" && (
+              <p className="text-amber-200">Status: not run yet</p>
+            )}
             <p>Pass rate: {Math.round((evalResults?.summary?.pass_rate ?? 0) * 100)}%</p>
             <p>Tool accuracy: {Math.round((evalResults?.summary?.tool_accuracy ?? 0) * 100)}%</p>
             <p>Avg groundedness: {Math.round((evalResults?.summary?.avg_groundedness ?? 0) * 100)}%</p>
