@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -90,10 +91,15 @@ def _money(value: float) -> str:
     return f"${value:,.0f}"
 
 
+def _word_set(message: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", message.lower()))
+
+
 def answer_basic_metric_question(message: str) -> ChatResponse | None:
     metrics = get_basic_crm_metrics.invoke({})
     if "error" in metrics:
         return None
+    words = _word_set(message)
 
     if any(phrase in message for phrase in ("how many", "number of", "count of")):
         wants_accounts = "account" in message
@@ -125,7 +131,7 @@ def answer_basic_metric_question(message: str) -> ChatResponse | None:
         if "task" in message:
             return ChatResponse(response=f"You have **{metrics['tasks']} tasks** in total.", tools_used=["get_basic_crm_metrics"])
 
-    if any(word in message for word in ("total", "sum")):
+    if words.intersection({"total", "sum"}):
         if "account" in message and any(word in message for word in ("amount", "revenue", "value")):
             return ChatResponse(
                 response=f"Total annual revenue across all accounts is **{_money(metrics['total_account_annual_revenue'])}**.",

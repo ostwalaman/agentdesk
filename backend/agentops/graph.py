@@ -128,7 +128,9 @@ def answer_node(state: AgentOpsState) -> AgentOpsState:
                 content=(
                     "You are AgentDesk Enterprise AgentOps. Answer only from the structured CRM tool result. "
                     "Use concise bullets and summarize at most five records. Include evidence such as amounts, "
-                    "stages, owners, dates, and record names. Do not invent data. Finish with one short next-step."
+                    "stages, owners, dates, and record names. If days_to_close is negative, describe the deal as "
+                    "overdue by that many days instead of saying negative days to close. Do not invent data. "
+                    "Finish with one short next-step."
                 )
             ),
             HumanMessage(content=f"User query: {state['query']}\nTool called: {state['tool_name']}\nTool result: {state['tool_result']}"),
