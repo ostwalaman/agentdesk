@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 
 from database import SessionLocal, ensure_salesforce_columns, init_db, utc_now
-from models import Account, Contact, Opportunity, Task
+from models import Account, Activity, Contact, Opportunity, Task
 from salesforce_client import get_object_fields, get_salesforce_client
 
 
@@ -104,6 +104,7 @@ def sync_salesforce_to_sqlite() -> dict[str, int | str]:
         opportunity_contact_roles = {}
 
     with SessionLocal() as db:
+        db.query(Activity).delete()
         db.query(Task).delete()
         db.query(Opportunity).delete()
         db.query(Contact).delete()
@@ -205,6 +206,24 @@ def sync_salesforce_to_sqlite() -> dict[str, int | str]:
             )
             db.add(task)
 
+        activity_count = 0
+        for contact in contact_by_sf_id.values():
+            account = db.get(Account, contact.account_id)
+            if not account:
+                continue
+            db.add(
+                Activity(
+                    account_id=account.id,
+                    contact_id=contact.id,
+                    opportunity_id=None,
+                    activity_type="Salesforce Activity",
+                    subject=f"Last activity for {contact.name}",
+                    occurred_at=contact.last_contacted_at,
+                    created_at=contact.last_contacted_at,
+                )
+            )
+            activity_count += 1
+
         db.commit()
         return {
             "salesforce_instance": sf.sf_instance,
@@ -212,6 +231,7 @@ def sync_salesforce_to_sqlite() -> dict[str, int | str]:
             "contacts": len(contact_by_sf_id),
             "opportunities": len(opportunity_by_sf_id),
             "tasks": len(tasks),
+            "activities": activity_count,
         }
 
 

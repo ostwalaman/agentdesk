@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from models import Account, Base, Contact, Opportunity, Task
+from models import Account, Activity, Base, Contact, Opportunity, Task
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_URL = f"sqlite:///{BASE_DIR / 'agentdesk.db'}"
@@ -30,8 +30,38 @@ def get_db():
 def init_db(seed: bool = True) -> None:
     Base.metadata.create_all(bind=engine)
     ensure_salesforce_columns()
+    backfill_activities()
     if seed:
         seed_database()
+
+
+def backfill_activities() -> None:
+    with SessionLocal() as db:
+        has_activity = db.scalar(select(Activity.id).limit(1))
+        if has_activity:
+            return
+        contacts = db.query(Contact).all()
+        if not contacts:
+            return
+        for contact in contacts:
+            opportunity = (
+                db.query(Opportunity)
+                .filter(Opportunity.contact_id == contact.id)
+                .order_by(Opportunity.close_date.asc())
+                .first()
+            )
+            db.add(
+                Activity(
+                    account_id=contact.account_id,
+                    contact_id=contact.id,
+                    opportunity_id=opportunity.id if opportunity else None,
+                    activity_type="Backfilled Activity",
+                    subject=f"Last CRM activity for {contact.name}",
+                    occurred_at=contact.last_contacted_at,
+                    created_at=contact.last_contacted_at,
+                )
+            )
+        db.commit()
 
 
 def ensure_salesforce_columns() -> None:
@@ -53,6 +83,7 @@ def seed_database(force: bool = False) -> None:
             return
 
         if force:
+            db.query(Activity).delete()
             db.query(Task).delete()
             db.query(Opportunity).delete()
             db.query(Contact).delete()
@@ -201,6 +232,25 @@ def seed_database(force: bool = False) -> None:
                 )
             )
         db.add_all(tasks)
+        db.flush()
+
+        activities: list[Activity] = []
+        for idx, contact in enumerate(contacts, start=1):
+            account = accounts[(idx - 1) % len(accounts)]
+            opportunity = opportunities[(idx - 1) % len(opportunities)]
+            activities.append(
+                Activity(
+                    id=idx,
+                    account_id=account.id,
+                    contact_id=contact.id,
+                    opportunity_id=opportunity.id,
+                    activity_type="Email" if idx % 2 else "Call",
+                    subject=f"CRM touchpoint with {contact.name}",
+                    occurred_at=contact.last_contacted_at,
+                    created_at=contact.last_contacted_at,
+                )
+            )
+        db.add_all(activities)
         db.commit()
 
 

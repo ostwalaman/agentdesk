@@ -1,0 +1,45 @@
+{"query":"Which deals are most at risk this quarter?","expected_tool":"find_at_risk_deals"}
+{"query":"Which deals are closing soon and look risky?","expected_tool":"find_at_risk_deals"}
+{"query":"Show me risky open opportunities.","expected_tool":"find_at_risk_deals"}
+{"query":"Which open deals have the highest risk score?","expected_tool":"find_at_risk_deals"}
+{"query":"Which opportunities need urgent attention?","expected_tool":"find_at_risk_deals"}
+{"query":"Find low probability deals close to closing.","expected_tool":"find_at_risk_deals"}
+{"query":"List at risk deals for sales review.","expected_tool":"find_at_risk_deals"}
+{"query":"Which deals are risky?","expected_tool":"find_at_risk_deals"}
+{"query":"Summarize pipeline health by stage.","expected_tool":"get_pipeline_health"}
+{"query":"Show me the pipeline summary.","expected_tool":"get_pipeline_health"}
+{"query":"Pipeline by stage please.","expected_tool":"get_pipeline_health"}
+{"query":"What does our overall pipeline look like?","expected_tool":"get_pipeline_health"}
+{"query":"How many deals and how much value do we have by stage?","expected_tool":"get_pipeline_health"}
+{"query":"Give me a sales pipeline overview.","expected_tool":"get_pipeline_health"}
+{"query":"Break down opportunity value by stage.","expected_tool":"get_pipeline_health"}
+{"query":"Summarize pipeline health for leadership.","expected_tool":"get_pipeline_health"}
+{"query":"Forecast revenue for the current pipeline.","expected_tool":"forecast_revenue"}
+{"query":"What is expected revenue from open deals?","expected_tool":"forecast_revenue"}
+{"query":"Calculate our weighted forecast.","expected_tool":"forecast_revenue"}
+{"query":"What is the revenue forecast?","expected_tool":"forecast_revenue"}
+{"query":"Show total open value and forecasted revenue.","expected_tool":"forecast_revenue"}
+{"query":"Which accounts have high revenue but low recent activity?","expected_tool":"high_revenue_low_activity"}
+{"query":"Find large accounts with stale engagement.","expected_tool":"high_revenue_low_activity"}
+{"query":"Show high value accounts that need follow up.","expected_tool":"high_revenue_low_activity"}
+{"query":"Which big accounts have not been contacted recently?","expected_tool":"high_revenue_low_activity"}
+{"query":"Find high revenue accounts with low activity.","expected_tool":"high_revenue_low_activity"}
+{"query":"Show me stale opportunities.","expected_tool":"get_stale_opportunities"}
+{"query":"Which opportunities have no recent activity?","expected_tool":"get_stale_opportunities"}
+{"query":"Find deals with no follow-up in 14 days.","expected_tool":"get_stale_opportunities"}
+{"query":"Create a task for accounts with no follow-up in 14 days.","expected_tool":"get_stale_opportunities"}
+{"query":"Which open opportunities are stale?","expected_tool":"get_stale_opportunities"}
+{"query":"Show stale deals for follow-up planning.","expected_tool":"get_stale_opportunities"}
+{"query":"Draft follow-up emails for stale enterprise opportunities.","expected_tool":"draft_follow_up"}
+{"query":"Draft a follow-up email for the most relevant open opportunity.","expected_tool":"draft_follow_up"}
+{"query":"Write a follow up email for a stale deal.","expected_tool":"draft_follow_up"}
+{"query":"Generate a warm sales follow-up email.","expected_tool":"draft_follow_up"}
+{"query":"Draft an email to re-engage an opportunity.","expected_tool":"draft_follow_up"}
+{"query":"Summarize account Kan-code.","expected_tool":"summarize_account"}
+{"query":"Give me a summary of Acme Corp.","expected_tool":"summarize_account"}
+{"query":"Summarize the account United Oil & Gas Corp.","expected_tool":"summarize_account"}
+{"query":"Account summary for Green-Plus.","expected_tool":"summarize_account"}
+{"query":"Give me account health for Kan-code.","expected_tool":"summarize_account"}
+{"query":"Summarize account Dickenson plc.","expected_tool":"summarize_account"}
+{"query":"Show me an account summary for Pyramid Construction Inc.","expected_tool":"summarize_account"}
+{"query":"Summarize account Plusstrip.","expected_tool":"summarize_account"}

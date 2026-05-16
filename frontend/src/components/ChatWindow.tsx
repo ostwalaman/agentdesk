@@ -12,7 +12,18 @@ const samplePrompts = [
 
 const threadId = crypto.randomUUID();
 
-export default function ChatWindow() {
+type AgentPayload = {
+  response: string;
+  tools_used: string[];
+  trace?: Record<string, unknown>;
+  evaluation?: Record<string, unknown>;
+};
+
+type Props = {
+  onAgentResponse?: (payload: AgentPayload) => void;
+};
+
+export default function ChatWindow({ onAgentResponse }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
@@ -44,7 +55,8 @@ export default function ChatWindow() {
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`);
       }
-      const payload: { response: string; tools_used: string[] } = await response.json();
+      const payload: AgentPayload = await response.json();
+      onAgentResponse?.(payload);
       setMessages((current) => [
         ...current,
         {

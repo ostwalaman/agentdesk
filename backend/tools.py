@@ -184,7 +184,7 @@ Body:
                     "note": "OPENAI_API_KEY is not set, so AgentDesk returned a deterministic local draft.",
                 }
 
-            client = OpenAI(api_key=api_key)
+            client = OpenAI(api_key=api_key, timeout=20, max_retries=0)
             completion = client.chat.completions.create(
                 model=get_openai_model(),
                 temperature=0.4,

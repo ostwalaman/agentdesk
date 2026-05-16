@@ -1,4 +1,4 @@
-# AgentDesk
+# AgentDesk Enterprise AgentOps
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)
@@ -7,9 +7,9 @@
 ![OpenAI](https://img.shields.io/badge/OpenAI-API-111827?logo=openai&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-CRM-003B57?logo=sqlite&logoColor=white)
 
-AgentDesk is a full-stack AI CRM agent for sales teams. It gives sales reps a natural-language workspace for account summaries, pipeline inspection, risk triage, follow-up drafting, and CRM task creation on top of Salesforce-like data.
+AgentDesk Enterprise AgentOps is a full-stack GenAI CRM copilot for sales teams. It lets users ask CRM questions in natural language, routes each request through a LangGraph workflow, calls safe CRM tools, returns grounded answers, and tracks production-style metrics such as latency, tool success, token usage, estimated cost, and groundedness.
 
-The project is built as an Agentforce-style multi-tool LLM agent. A LangGraph ReAct agent decides when to call CRM tools, the tools query or mutate a local SQLite CRM, and the React frontend presents a professional chat and pipeline command center.
+The project is built as an Agentforce-style multi-tool LLM agent with an AgentOps layer. Salesforce-style CRM data is synced into a SQLite cache, the official MCP Python SDK exposes CRM actions over Streamable HTTP, and the frontend shows chat, tool traces, observability metrics, and evaluation results.
 
 ## Architecture
 
@@ -19,19 +19,29 @@ Sales Rep
    v
 React + TypeScript + Tailwind frontend
    |
-   |  /chat, /pipeline, /accounts, /deals/at-risk
+   |  /api/chat, /api/pipeline, /api/accounts, /api/deals/at-risk
    v
 FastAPI backend
    |
-   v
-LangGraph ReAct agent + LangChain tools
+   +--> Official MCP server at /mcp
+   |
+   +--> LangGraph agent + deterministic CRM tools
    |
    +--> SQLite CRM tables
-   |      accounts, contacts, opportunities, tasks
+   |      accounts, contacts, opportunities, tasks, activities
    |
    +--> OpenAI chat model
           configured with OPENAI_MODEL
 ```
+
+## AgentOps Capabilities
+
+- LangGraph workflow: router, CRM tool execution, answer generation, evaluation guardrail.
+- Official MCP Python SDK server: `POST /mcp` or `/mcp/` exposes CRM tools over Streamable HTTP.
+- Compatibility tool registry: `GET /api/tools` exposes tool names, descriptions, and JSON schemas.
+- CRM tools: pipeline health, at-risk deals, account summary, follow-up drafting, task creation, revenue forecasting, stale opportunities, high-revenue low-activity accounts.
+- Observability: request count, average latency, p95 latency, tokens/request, estimated cost/request, tool success rate, failed tool calls, evaluation pass rate, groundedness score.
+- Evaluation: JSONL cases in `backend/evals/eval_cases.jsonl`; runner at `backend/evals/run_eval.py`.
 
 ## Setup
 
@@ -62,6 +72,117 @@ npm run dev
 ```
 
 Open `http://localhost:3000`. The Vite dev server proxies `/api/*` calls to `http://localhost:8000`.
+
+## AgentOps API
+
+```text
+POST /chat
+GET /metrics
+GET /traces/recent
+GET /eval/results
+POST /eval/run
+GET /mcp/tools
+POST /mcp/tools/{tool_name}
+GET /crm/accounts
+GET /crm/opportunities
+POST /mcp
+```
+
+The React production build is served by FastAPI from the same service, so the Cloud Run demo uses one public URL for the frontend, backend, and MCP endpoint.
+
+Run the eval set:
+
+```bash
+cd agentdesk/backend
+source .venv/bin/activate
+python -m evals.run_eval
+```
+
+## Official MCP Server
+
+AgentDesk uses the official MCP Python SDK:
+
+```python
+from mcp.server.fastmcp import FastMCP
+```
+
+The MCP server is mounted into FastAPI at:
+
+```text
+http://localhost:8000/mcp
+```
+
+It exposes these typed CRM tools:
+
+- `get_pipeline_health`
+- `find_at_risk_deals`
+- `summarize_account`
+- `draft_follow_up`
+- `create_task`
+- `forecast_revenue`
+
+You can test it with MCP Inspector:
+
+```bash
+npx @modelcontextprotocol/inspector http://localhost:8000/mcp
+```
+
+## Cloud Run Deployment
+
+The root `Dockerfile` builds the React frontend and FastAPI backend into one Cloud Run service.
+
+Deployment defaults:
+
+```text
+Service: agentdesk-agentops
+Region: us-central1
+Secret Manager key: agentdesk-openai-api-key
+MCP endpoint: https://YOUR_CLOUD_RUN_URL/mcp
+```
+
+Install and authenticate Google Cloud CLI, then run:
+
+```bash
+gcloud config set project YOUR_PROJECT_ID
+
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com
+
+gcloud artifacts repositories create agentdesk \
+  --repository-format=docker \
+  --location=us-central1
+
+gcloud secrets create agentdesk-openai-api-key \
+  --replication-policy=automatic
+
+printf "YOUR_OPENAI_API_KEY" | gcloud secrets versions add agentdesk-openai-api-key --data-file=-
+
+gcloud builds submit \
+  --tag us-central1-docker.pkg.dev/YOUR_PROJECT_ID/agentdesk/agentdesk-agentops:latest
+
+gcloud run deploy agentdesk-agentops \
+  --image us-central1-docker.pkg.dev/YOUR_PROJECT_ID/agentdesk/agentdesk-agentops:latest \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-secrets OPENAI_API_KEY=agentdesk-openai-api-key:latest \
+  --set-env-vars OPENAI_MODEL=gpt-4o-mini
+```
+
+Live demo URL:
+
+```text
+https://agentdesk-agentops-278905193417.us-central1.run.app
+```
+
+MCP endpoint:
+
+```text
+https://agentdesk-agentops-278905193417.us-central1.run.app/mcp
+```
 
 ## CRM Agent Tools
 
@@ -147,7 +268,9 @@ AgentDesk detects `sales_pipeline.csv` and maps the bundle into local CRM accoun
 
 ## Screenshots
 
-Add screenshots here after running the frontend:
+Cloud Run demo:
+
+![AgentDesk Cloud Run demo](docs/screenshots/agentdesk-cloud-run-demo.png)
 
 - Chat workspace
 - Pipeline overview sidebar

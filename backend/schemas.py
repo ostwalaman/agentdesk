@@ -14,6 +14,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     tools_used: list[str]
+    trace: dict[str, Any] | None = None
+    evaluation: dict[str, Any] | None = None
 
 
 class AccountOut(BaseModel):

@@ -1,19 +1,37 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, File, UploadFile
+import contextlib
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from agent import run_agent
+from agentops.graph import run_agentops_query
+from agentops.mcp_registry import MCP_TOOL_DEFINITIONS, call_tool
+from agentops.mcp_server import mcp
+from agentops.observability import aggregate_metrics, load_eval_results, load_traces
 from config import get_openai_key_debug
 from csv_import import import_multiple_crm_csv
 from database import get_db, init_db
 from models import Account
 from salesforce_sync import sync_salesforce_to_sqlite
 from schemas import AccountOut, ChatRequest, ChatResponse
-from tools import get_at_risk_deals, get_basic_crm_metrics, get_crm_counts, get_crm_totals, get_pipeline_summary
+from tools import get_at_risk_deals, get_basic_crm_metrics, get_pipeline_summary
 
-app = FastAPI(title="AgentDesk API", version="1.0.0")
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db(seed=True)
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="AgentDesk API", version="1.0.0", lifespan=lifespan)
+api_router = APIRouter()
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,27 +39,50 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Mcp-Session-Id"],
 )
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db(seed=True)
-
-
-@app.get("/health")
+@api_router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/debug/openai-key")
+@api_router.get("/debug/openai-key")
 def debug_openai_key():
     return get_openai_key_debug()
 
 
-@app.get("/metrics")
+@api_router.get("/metrics")
 def metrics():
-    return get_basic_crm_metrics.invoke({})
+    return {"crm": get_basic_crm_metrics.invoke({}), "agentops": aggregate_metrics()}
+
+
+@api_router.get("/traces/recent")
+def recent_traces(limit: int = 10):
+    return {"traces": load_traces(limit=limit)}
+
+
+@api_router.get("/eval/results")
+def eval_results():
+    return load_eval_results()
+
+
+@api_router.post("/eval/run")
+async def run_eval_endpoint():
+    from evals.run_eval import run_eval
+
+    return await run_eval()
+
+
+@api_router.get("/tools")
+def tool_definitions():
+    return {"tools": MCP_TOOL_DEFINITIONS}
+
+
+@api_router.post("/tools/{tool_name}")
+def call_registered_tool(tool_name: str, arguments: dict[str, Any] | None = None):
+    return call_tool(tool_name, arguments or {})
 
 
 def _money(value: float) -> str:
@@ -146,12 +187,12 @@ def answer_basic_metric_question(message: str) -> ChatResponse | None:
     return None
 
 
-@app.post("/sync/salesforce")
+@api_router.post("/sync/salesforce")
 def sync_salesforce():
     return sync_salesforce_to_sqlite()
 
 
-@app.post("/import/csv")
+@api_router.post("/import/csv")
 async def import_csv(files: list[UploadFile] = File(...)):
     csv_files: dict[str, str] = {}
     for file in files:
@@ -161,26 +202,88 @@ async def import_csv(files: list[UploadFile] = File(...)):
     return {"filenames": list(csv_files), **result}
 
 
-@app.post("/chat", response_model=ChatResponse)
+@api_router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     message = request.message.lower()
     basic_answer = answer_basic_metric_question(message)
     if basic_answer:
         return basic_answer
-    result = await run_agent(request.message, request.thread_id)
-    return ChatResponse(response=result["response"], tools_used=result["tools_used"])
+    result = await run_agentops_query(request.message, request.thread_id)
+    return ChatResponse(
+        response=result["response"],
+        tools_used=result["tools_used"],
+        trace=result.get("trace"),
+        evaluation=result.get("evaluation"),
+    )
 
 
-@app.get("/pipeline")
+@api_router.get("/pipeline")
 def pipeline():
     return get_pipeline_summary.invoke({})
 
 
-@app.get("/accounts", response_model=list[AccountOut])
+@api_router.get("/accounts", response_model=list[AccountOut])
 def accounts(db: Session = Depends(get_db)) -> list[Account]:
     return db.query(Account).order_by(Account.name.asc()).all()
 
 
-@app.get("/deals/at-risk")
+@api_router.get("/crm/accounts", response_model=list[AccountOut])
+def crm_accounts(db: Session = Depends(get_db)) -> list[Account]:
+    return db.query(Account).order_by(Account.name.asc()).all()
+
+
+@api_router.get("/crm/opportunities")
+def crm_opportunities(db: Session = Depends(get_db)):
+    from models import Opportunity
+
+    rows = db.query(Opportunity).order_by(Opportunity.close_date.asc()).limit(500).all()
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "stage": row.stage,
+            "amount": row.amount,
+            "close_date": row.close_date.date().isoformat(),
+            "probability": row.probability,
+            "account_id": row.account_id,
+        }
+        for row in rows
+    ]
+
+
+@api_router.get("/deals/at-risk")
 def at_risk_deals():
     return get_at_risk_deals.invoke({})
+
+
+app.include_router(api_router)
+app.include_router(api_router, prefix="/api")
+
+
+@app.api_route("/mcp", methods=["GET", "POST", "DELETE"], include_in_schema=False)
+async def mcp_redirect():
+    return RedirectResponse(url="/mcp/", status_code=307)
+
+
+app.mount("/mcp", mcp.streamable_http_app())
+
+
+BACKEND_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BACKEND_DIR / "static"
+LOCAL_FRONTEND_DIST = BACKEND_DIR.parent / "frontend" / "dist"
+FRONTEND_DIST = STATIC_DIR if STATIC_DIR.exists() else LOCAL_FRONTEND_DIST
+
+if FRONTEND_DIST.exists():
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def serve_frontend(full_path: str):
+    if full_path.startswith(("api/", "mcp/")):
+        raise HTTPException(status_code=404, detail="Not found")
+    index_path = FRONTEND_DIST / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="Frontend build not found. Run `npm run build` in frontend.")

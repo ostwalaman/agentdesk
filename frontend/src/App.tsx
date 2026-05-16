@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, BarChart3, RefreshCw, Upload, DatabaseZap } from "lucide-react";
+import { AlertTriangle, BarChart3, RefreshCw, Upload, DatabaseZap, Activity, CheckCircle2 } from "lucide-react";
 import ChatWindow from "./components/ChatWindow";
 
 type PipelineStage = {
@@ -23,6 +23,31 @@ type AtRiskDeal = {
   amount: number;
   probability: number;
   days_left: number;
+};
+
+type AgentOpsMetrics = {
+  request_count: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  avg_tokens_per_request: number;
+  avg_cost_per_request_usd: number;
+  tool_success_rate: number;
+  failed_tool_calls: number;
+  evaluation_pass_rate: number;
+  avg_groundedness_score: number;
+  recent_traces: Array<Record<string, unknown>>;
+};
+
+type EvalResults = {
+  summary?: {
+    cases: number;
+    pass_rate: number;
+    tool_accuracy?: number;
+    avg_groundedness?: number;
+    avg_latency_ms?: number;
+    total_cost_usd?: number;
+  };
+  runs?: Array<Record<string, unknown>>;
 };
 
 const currency = new Intl.NumberFormat("en-US", {
@@ -327,10 +352,98 @@ function Sidebar() {
 }
 
 export default function App() {
+  const [agentops, setAgentops] = useState<AgentOpsMetrics | null>(null);
+  const [evalResults, setEvalResults] = useState<EvalResults | null>(null);
+  const [latestTrace, setLatestTrace] = useState<Record<string, unknown> | null>(null);
+
+  async function refreshAgentOps() {
+    const [metricsResponse, evalResponse] = await Promise.all([
+      fetch("/api/metrics"),
+      fetch("/api/eval/results")
+    ]);
+    if (metricsResponse.ok) {
+      const payload = await metricsResponse.json();
+      setAgentops(payload.agentops);
+    }
+    if (evalResponse.ok) {
+      setEvalResults(await evalResponse.json());
+    }
+  }
+
+  useEffect(() => {
+    void refreshAgentOps();
+    const interval = window.setInterval(() => void refreshAgentOps(), 15000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   return (
     <main className="flex h-full flex-col bg-navy-950 lg:flex-row">
       <Sidebar />
-      <ChatWindow />
+      <ChatWindow
+        onAgentResponse={(payload) => {
+          setLatestTrace((payload.trace as Record<string, unknown>) ?? null);
+          void refreshAgentOps();
+        }}
+      />
+      <aside className="hidden h-full w-[360px] flex-col gap-5 overflow-y-auto border-l border-white/10 bg-navy-900 p-5 text-white xl:flex">
+        <section className="rounded-lg border border-white/10 bg-white/[0.06] p-4">
+          <div className="mb-4 flex items-center gap-2">
+            <Activity size={18} className="text-electric-300" />
+            <h3 className="text-sm font-semibold">Observability</h3>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <Metric label="Requests" value={agentops?.request_count ?? 0} />
+            <Metric label="Avg Latency" value={`${agentops?.avg_latency_ms ?? 0}ms`} />
+            <Metric label="p95 Latency" value={`${agentops?.p95_latency_ms ?? 0}ms`} />
+            <Metric label="Avg Tokens" value={agentops?.avg_tokens_per_request ?? 0} />
+            <Metric label="Avg Cost" value={`$${agentops?.avg_cost_per_request_usd ?? 0}`} />
+            <Metric label="Tool Success" value={`${Math.round((agentops?.tool_success_rate ?? 1) * 100)}%`} />
+            <Metric label="Eval Pass" value={`${Math.round((agentops?.evaluation_pass_rate ?? 0) * 100)}%`} />
+            <Metric label="Grounded" value={`${Math.round((agentops?.avg_groundedness_score ?? 0) * 100)}%`} />
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-white/10 bg-white/[0.06] p-4">
+          <div className="mb-4 flex items-center gap-2">
+            <BarChart3 size={18} className="text-electric-300" />
+            <h3 className="text-sm font-semibold">Latest Trace</h3>
+          </div>
+          {latestTrace ? (
+            <div className="space-y-2 text-xs text-slate-300">
+              <p><span className="text-slate-500">Route:</span> {String(latestTrace.route ?? "n/a")}</p>
+              <p><span className="text-slate-500">Latency:</span> {String(latestTrace.latency_ms ?? 0)}ms</p>
+              <p><span className="text-slate-500">Cost:</span> ${String(latestTrace.cost_usd ?? 0)}</p>
+              <pre className="max-h-48 overflow-auto rounded-lg bg-navy-950 p-3 text-[11px] leading-5 text-slate-300">
+                {JSON.stringify(latestTrace.tools ?? [], null, 2)}
+              </pre>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400">Ask an AgentOps question to see the tool trace.</p>
+          )}
+        </section>
+
+        <section className="rounded-lg border border-white/10 bg-white/[0.06] p-4">
+          <div className="mb-4 flex items-center gap-2">
+            <CheckCircle2 size={18} className="text-emerald-300" />
+            <h3 className="text-sm font-semibold">Evaluation</h3>
+          </div>
+          <div className="space-y-2 text-xs text-slate-300">
+            <p>Cases: {evalResults?.summary?.cases ?? 0}</p>
+            <p>Pass rate: {Math.round((evalResults?.summary?.pass_rate ?? 0) * 100)}%</p>
+            <p>Tool accuracy: {Math.round((evalResults?.summary?.tool_accuracy ?? 0) * 100)}%</p>
+            <p>Avg groundedness: {Math.round((evalResults?.summary?.avg_groundedness ?? 0) * 100)}%</p>
+          </div>
+        </section>
+      </aside>
     </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg bg-navy-950 p-3">
+      <p className="text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+    </div>
   );
 }
