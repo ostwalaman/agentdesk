@@ -95,6 +95,23 @@ def answer_basic_metric_question(message: str) -> ChatResponse | None:
         return None
 
     if any(phrase in message for phrase in ("how many", "number of", "count of")):
+        wants_accounts = "account" in message
+        wants_opportunities = any(word in message for word in ("opportunit", "deal"))
+        wants_contacts = "contact" in message
+        wants_tasks = "task" in message
+        if sum([wants_accounts, wants_opportunities, wants_contacts, wants_tasks]) > 1:
+            lines = []
+            if wants_accounts:
+                lines.append(f"- Accounts: **{metrics['accounts']}**")
+            if wants_opportunities:
+                lines.append(
+                    f"- Opportunities: **{metrics['opportunities']}** total, **{metrics['open_opportunities']}** open"
+                )
+            if wants_contacts:
+                lines.append(f"- Contacts: **{metrics['contacts']}**")
+            if wants_tasks:
+                lines.append(f"- Tasks: **{metrics['tasks']}**")
+            return ChatResponse(response="CRM record counts:\n" + "\n".join(lines), tools_used=["get_basic_crm_metrics"])
         if "account" in message:
             return ChatResponse(response=f"You have **{metrics['accounts']} accounts** in total.", tools_used=["get_basic_crm_metrics"])
         if "contact" in message:
@@ -189,7 +206,12 @@ def answer_basic_metric_question(message: str) -> ChatResponse | None:
 
 @api_router.post("/sync/salesforce")
 def sync_salesforce():
-    return sync_salesforce_to_sqlite()
+    try:
+        return sync_salesforce_to_sqlite()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Salesforce sync failed: {exc}") from exc
 
 
 @api_router.post("/import/csv")

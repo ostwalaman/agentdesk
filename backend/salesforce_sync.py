@@ -104,26 +104,26 @@ def sync_salesforce_to_sqlite() -> dict[str, int | str]:
         opportunity_contact_roles = {}
 
     with SessionLocal() as db:
-        db.query(Activity).delete()
-        db.query(Task).delete()
-        db.query(Opportunity).delete()
-        db.query(Contact).delete()
-        db.query(Account).delete()
-        db.commit()
+        db.query(Activity).filter(Activity.activity_type == "Salesforce Activity").delete()
 
         account_by_sf_id: dict[str, Account] = {}
         for record in accounts:
             owner = record.get("Owner") or {}
-            account = Account(
-                salesforce_id=record["Id"],
-                name=record.get("Name") or "Unnamed Account",
-                industry=record.get("Industry") or "Unknown",
-                annual_revenue=float(record.get("AnnualRevenue") or 0),
-                account_health=account_health_from(record),
-                owner=owner.get("Name") or "Unknown Owner",
-                created_at=parse_salesforce_datetime(record.get("CreatedDate")),
+            account_name = record.get("Name") or "Unnamed Account"
+            account = (
+                db.scalar(select(Account).where(Account.salesforce_id == record["Id"]))
+                or db.scalar(select(Account).where(Account.name == account_name))
+                or Account()
             )
-            db.add(account)
+            account.salesforce_id = record["Id"]
+            account.name = account_name
+            account.industry = record.get("Industry") or "Unknown"
+            account.annual_revenue = float(record.get("AnnualRevenue") or 0)
+            account.account_health = account_health_from(record)
+            account.owner = owner.get("Name") or "Unknown Owner"
+            account.created_at = parse_salesforce_datetime(record.get("CreatedDate"))
+            if account.id is None:
+                db.add(account)
             db.flush()
             account_by_sf_id[record["Id"]] = account
 
@@ -133,16 +133,16 @@ def sync_salesforce_to_sqlite() -> dict[str, int | str]:
             account = account_by_sf_id.get(record.get("AccountId"))
             if not account:
                 continue
-            contact = Contact(
-                salesforce_id=record["Id"],
-                account_id=account.id,
-                name=record.get("Name") or "Unnamed Contact",
-                email=record.get("Email") or "",
-                phone=record.get("Phone") or "",
-                last_contacted_at=parse_salesforce_date(record.get("LastActivityDate")),
-                status=contact_status_from(record),
-            )
-            db.add(contact)
+            contact = db.scalar(select(Contact).where(Contact.salesforce_id == record["Id"])) or Contact()
+            contact.salesforce_id = record["Id"]
+            contact.account_id = account.id
+            contact.name = record.get("Name") or "Unnamed Contact"
+            contact.email = record.get("Email") or ""
+            contact.phone = record.get("Phone") or ""
+            contact.last_contacted_at = parse_salesforce_date(record.get("LastActivityDate"))
+            contact.status = contact_status_from(record)
+            if contact.id is None:
+                db.add(contact)
             db.flush()
             contact_by_sf_id[record["Id"]] = contact
             contacts_by_account_sf_id.setdefault(record.get("AccountId"), []).append(contact)
@@ -157,18 +157,18 @@ def sync_salesforce_to_sqlite() -> dict[str, int | str]:
                 contact = next(iter(contacts_by_account_sf_id.get(record.get("AccountId"), [])), None)
             if not contact:
                 continue
-            opportunity = Opportunity(
-                salesforce_id=record["Id"],
-                account_id=account.id,
-                contact_id=contact.id,
-                name=record.get("Name") or "Unnamed Opportunity",
-                stage=record.get("StageName") or "Prospecting",
-                amount=float(record.get("Amount") or 0),
-                close_date=parse_salesforce_date(record.get("CloseDate")),
-                probability=float(record.get("Probability") or 0),
-                created_at=parse_salesforce_datetime(record.get("CreatedDate")),
-            )
-            db.add(opportunity)
+            opportunity = db.scalar(select(Opportunity).where(Opportunity.salesforce_id == record["Id"])) or Opportunity()
+            opportunity.salesforce_id = record["Id"]
+            opportunity.account_id = account.id
+            opportunity.contact_id = contact.id
+            opportunity.name = record.get("Name") or "Unnamed Opportunity"
+            opportunity.stage = record.get("StageName") or "Prospecting"
+            opportunity.amount = float(record.get("Amount") or 0)
+            opportunity.close_date = parse_salesforce_date(record.get("CloseDate"))
+            opportunity.probability = float(record.get("Probability") or 0)
+            opportunity.created_at = parse_salesforce_datetime(record.get("CreatedDate"))
+            if opportunity.id is None:
+                db.add(opportunity)
             db.flush()
             opportunity_by_sf_id[record["Id"]] = opportunity
 
@@ -195,16 +195,16 @@ def sync_salesforce_to_sqlite() -> dict[str, int | str]:
                 contact = db.scalar(select(Contact).where(Contact.id == opportunity.contact_id))
             if not contact:
                 continue
-            task = Task(
-                salesforce_id=record["Id"],
-                contact_id=contact.id,
-                opportunity_id=opportunity.id if opportunity else None,
-                title=record.get("Subject") or "Salesforce Task",
-                due_date=parse_salesforce_date(record.get("ActivityDate")),
-                status=task_status_from(record.get("Status")),
-                created_at=parse_salesforce_datetime(record.get("CreatedDate")),
-            )
-            db.add(task)
+            task = db.scalar(select(Task).where(Task.salesforce_id == record["Id"])) or Task()
+            task.salesforce_id = record["Id"]
+            task.contact_id = contact.id
+            task.opportunity_id = opportunity.id if opportunity else None
+            task.title = record.get("Subject") or "Salesforce Task"
+            task.due_date = parse_salesforce_date(record.get("ActivityDate"))
+            task.status = task_status_from(record.get("Status"))
+            task.created_at = parse_salesforce_datetime(record.get("CreatedDate"))
+            if task.id is None:
+                db.add(task)
 
         activity_count = 0
         for contact in contact_by_sf_id.values():
